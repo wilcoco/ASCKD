@@ -49,16 +49,30 @@ function soundNG() { beep(300, 0.25); beep(300, 0.25, 0.3); beep(300, 0.5, 0.6);
 function soundInfo() { beep(900, 0.1, 0, 'sine'); beep(1200, 0.1, 0.12, 'sine'); }
 
 // ===== 판정 오버레이 =====
+// 표시 중에는 스캔을 잠시 멈추고, 탭하면 즉시 닫고 다음 스캔 (같은 라벨도 바로 인식)
 let flashTimer = null;
+let flashActive = false;
 function showFlash(kind, icon, text, detail, holdMs) {
   const flash = $('flash');
   flash.className = `flash ${kind}`;
   $('flash-icon').textContent = icon;
   $('flash-text').textContent = text;
   $('flash-detail').textContent = detail || '';
+  flashActive = true;
   clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => flash.classList.add('hidden'), holdMs);
+  flashTimer = setTimeout(() => hideFlash(false), holdMs);
 }
+function hideFlash(resetDedupe) {
+  clearTimeout(flashTimer);
+  $('flash').classList.add('hidden');
+  flashActive = false;
+  if (resetDedupe) {
+    // 탭으로 닫은 경우: 같은 내용의 바코드도 즉시 다시 인식되도록 중복 방지 해제
+    lastCode = '';
+    lastCodeAt = 0;
+  }
+}
+$('flash').addEventListener('click', () => hideFlash(true));
 
 // ===== 로그인 / 회원가입 =====
 $('tab-login').onclick = () => setAuthTab('login');
@@ -373,6 +387,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function onScanSuccess(decodedText) {
+  if (flashActive) return; // 판정 화면 표시 중에는 다음 스캔 대기 (탭하면 즉시 재개)
   const nowMs = Date.now();
   // 같은 코드가 2.5초 안에 연속 인식되면 무시 (중복 방지)
   if (decodedText === lastCode && nowMs - lastCodeAt < 2500) return;

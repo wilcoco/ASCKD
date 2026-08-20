@@ -101,6 +101,7 @@ body {
 #flash-icon { font-size: 64px; }
 #flash-text { font-size: 40px; letter-spacing: 4px; }
 #flash-detail { font-size: 15px; font-weight: 500; opacity: 0.95; padding: 0 16px; text-align: center; word-break: break-all; }
+#flash-hint { margin-top: 10px; font-size: 13px; font-weight: 600; opacity: 0.85; background: rgba(0,0,0,0.25); padding: 6px 14px; border-radius: 999px; }
 
 /* 수동 입력 */
 .manual-input { display: flex; gap: 8px; padding: 10px 16px; background: #1f2937; }
