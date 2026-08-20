@@ -47,6 +47,7 @@ function beep(freq, duration, when = 0, type = 'square') {
 function soundOK() { beep(1400, 0.12, 0, 'sine'); }
 function soundNG() { beep(300, 0.25); beep(300, 0.25, 0.3); beep(300, 0.5, 0.6); if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 500]); }
 function soundInfo() { beep(900, 0.1, 0, 'sine'); beep(1200, 0.1, 0.12, 'sine'); }
+function soundEtc() { beep(600, 0.08, 0, 'sine'); }
 
 // ===== 판정 오버레이 =====
 // 표시 중에는 스캔을 잠시 멈추고, 탭하면 즉시 닫고 다음 스캔 (같은 라벨도 바로 인식)
@@ -440,9 +441,13 @@ async function handleProductScan(code) {
   if (data.result === 'OK') {
     soundOK();
     showFlash('ok', '✅', 'OK', `${data.productPartNo} 일치 (${data.okCount}${data.targetQty ? '/' + data.targetQty : ''})`, 1000);
-  } else {
+  } else if (data.result === 'NG') {
     soundNG();
     showFlash('ng', '🚫', '이종!', `제품 ${data.productPartNo} ≠ 상자 ${data.boxPartNo}`, 3000);
+  } else {
+    // ETC: 일련번호 등 품번 외 코드 — 기록만 하고 수량 미반영
+    soundEtc();
+    showFlash('etc', 'ℹ️', '기타 코드', '품번 라벨이 아닙니다 (일련번호 등) — 수량에 반영 안 됨', 900);
   }
   addLog(data.result, code);
 

@@ -122,14 +122,22 @@ app.post('/api/sessions/:id/scan', async (req, res) => {
     const parsed = parseProduct(barcode);
     if (!parsed) return res.status(400).json({ error: '제품 바코드를 인식할 수 없습니다.' });
 
-    const result = parsed.partNo === session.part_no ? 'OK' : 'NG';
+    // 판정: 품번 일치 → OK / '#' 포함 품번 라벨인데 불일치 → NG(이종)
+    //       그 외(일련번호 등 품번 외 코드) → ETC: 기록만 하고 수량 미반영
+    let result;
+    if (parsed.partNo === session.part_no) result = 'OK';
+    else if (barcode.includes('#')) result = 'NG';
+    else result = 'ETC';
+
     await query(
       `INSERT INTO scans (session_id, worker, barcode, part_no, result, scanned_at)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [id, session.worker, barcode, parsed.partNo, result, now()]
     );
-    const col = result === 'OK' ? 'ok_count' : 'ng_count';
-    await query(`UPDATE sessions SET ${col} = ${col} + 1 WHERE id = $1`, [id]);
+    if (result !== 'ETC') {
+      const col = result === 'OK' ? 'ok_count' : 'ng_count';
+      await query(`UPDATE sessions SET ${col} = ${col} + 1 WHERE id = $1`, [id]);
+    }
     const updated = await query('SELECT ok_count, ng_count, target_qty FROM sessions WHERE id = $1', [id]);
     res.json({
       result,
