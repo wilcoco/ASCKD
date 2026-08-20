@@ -194,42 +194,84 @@ function releaseStream() {
   }
 }
 
+// 재생을 여러 번 재시도하고, 끝내 거부되면 "탭하여 시작" 안내 표시
+async function safePlay(video) {
+  for (let i = 0; i < 6; i++) {
+    try {
+      await video.play();
+      if (!video.paused) return true;
+    } catch (e) {}
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  // 자동재생 거부 → 사용자 탭으로 시작
+  const hint = $('tap-hint');
+  hint.classList.remove('hidden');
+  return new Promise((resolve) => {
+    const onTap = async () => {
+      hint.classList.add('hidden');
+      try { await video.play(); } catch (e) {}
+      resolve(!video.paused);
+    };
+    hint.addEventListener('click', onTap, { once: true });
+  });
+}
+
+let starting = false; // 시작 도중 visibilitychange 등이 개입하지 못하게 하는 잠금
+
 async function startScanner() {
-  if (scannerRunning) return;
-  const video = $('cam');
-  // 디코더는 병렬로 로드 (카메라 시작을 지연시키지 않음 — 사용자 제스처 컨텍스트 유지)
-  const detectorPromise = getDetector();
-
-  mediaStream = await getCameraStream();
-  video.srcObject = mediaStream;
-  video.muted = true;
+  if (scannerRunning || starting) return;
+  starting = true;
   try {
-    await video.play();
-  } catch (e) {
-    // 자동재생이 거부되면 화면 탭으로 재생
-    video.addEventListener('click', () => video.play().catch(() => {}), { once: true });
-  }
+    const video = $('cam');
+    // 디코더는 병렬로 로드 (카메라 시작을 지연시키지 않음 — 사용자 제스처 컨텍스트 유지)
+    const detectorPromise = getDetector();
 
-  // 프레임이 안 나오면(엉뚱한 렌즈가 잡힌 경우 등) 기본 설정으로 1회 재시도
-  let ok = await waitForFrames(video);
-  if (!ok) {
-    releaseStream();
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment' } });
+    mediaStream = await getCameraStream();
     video.srcObject = mediaStream;
-    try { await video.play(); } catch (e) {}
-    ok = await waitForFrames(video);
-  }
-  if (!ok) {
-    releaseStream();
-    throw new Error('카메라 영상이 나오지 않습니다. 다른 앱이 카메라를 사용 중인지 확인하거나, 브라우저(크롬 권장)를 완전히 종료 후 다시 시도해 주세요. 수동 입력은 계속 사용 가능합니다.');
-  }
+    video.muted = true;
+    await safePlay(video);
 
-  videoTrack = mediaStream.getVideoTracks()[0];
-  await setupCameraControls();
-  await detectorPromise;
-  scannerRunning = true;
-  frameCount = 0;
-  scanLoop();
+    // 프레임이 안 나오면(엉뚱한 렌즈가 잡힌 경우 등) 기본 설정으로 1회 재시도
+    let ok = await waitForFrames(video);
+    if (!ok) {
+      releaseStream();
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment' } });
+      video.srcObject = mediaStream;
+      await safePlay(video);
+      ok = await waitForFrames(video);
+    }
+    if (!ok) {
+      releaseStream();
+      throw new Error('카메라 영상이 나오지 않습니다. 다른 앱이 카메라를 사용 중인지 확인하거나, 브라우저(크롬 권장)를 완전히 종료 후 다시 시도해 주세요. 수동 입력은 계속 사용 가능합니다.');
+    }
+
+    videoTrack = mediaStream.getVideoTracks()[0];
+    // 시스템이 카메라를 끊으면 자동 재시작
+    videoTrack.addEventListener('ended', scheduleRestart);
+    videoTrack.addEventListener('mute', scheduleRestart);
+    await setupCameraControls();
+    await detectorPromise;
+    scannerRunning = true;
+    frameCount = 0;
+    scanLoop();
+  } finally {
+    starting = false;
+  }
+}
+
+let restartTimer = null;
+function scheduleRestart() {
+  if (restartTimer) return;
+  restartTimer = setTimeout(async () => {
+    restartTimer = null;
+    const onScanScreen = !$('screen-scan').classList.contains('hidden');
+    if (!onScanScreen || starting) return;
+    const video = $('cam');
+    // 여전히 끊긴 상태일 때만 재시작
+    if (videoTrack && videoTrack.readyState === 'live' && !videoTrack.muted && video.videoWidth > 0 && !video.paused) return;
+    await stopScanner();
+    try { await startScanner(); } catch (e) {}
+  }, 1200);
 }
 
 async function setupCameraControls() {
@@ -299,20 +341,26 @@ async function scanLoop() {
 async function stopScanner() {
   scannerRunning = false;
   clearTimeout(scanTimer);
+  clearTimeout(restartTimer);
+  restartTimer = null;
+  if (videoTrack) {
+    videoTrack.removeEventListener('ended', scheduleRestart);
+    videoTrack.removeEventListener('mute', scheduleRestart);
+  }
+  $('tap-hint').classList.add('hidden');
   const video = $('cam');
   if (video) { video.pause(); video.srcObject = null; }
   releaseStream();
 }
 
-// 앱 전환 등으로 카메라가 끊겼다가 돌아오면 자동 재시작
-document.addEventListener('visibilitychange', async () => {
+// 앱 전환 등으로 카메라가 끊겼다가 돌아오면 자동 재시작 (시작 도중에는 개입하지 않음)
+document.addEventListener('visibilitychange', () => {
   const onScanScreen = !$('screen-scan').classList.contains('hidden');
-  if (!onScanScreen) return;
+  if (!onScanScreen || starting) return;
   if (document.visibilityState === 'visible') {
     const video = $('cam');
-    if (!scannerRunning || !video.srcObject || video.videoWidth === 0) {
-      await stopScanner();
-      try { await startScanner(); } catch (e) {}
+    if (!scannerRunning || !video.srcObject || video.videoWidth === 0 || video.paused) {
+      scheduleRestart();
     }
   }
 });

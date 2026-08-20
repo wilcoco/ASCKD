@@ -75,6 +75,12 @@ body {
   box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
+.tap-hint {
+  position: absolute; inset: 0; z-index: 8;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  background: rgba(17, 24, 39, 0.8); font-size: 20px; font-weight: 700; line-height: 1.6;
+  cursor: pointer;
+}
 .cam-controls {
   position: absolute; bottom: 8px; left: 0; right: 0; z-index: 5;
   display: flex; align-items: center; justify-content: center; gap: 12px; padding: 0 16px;
