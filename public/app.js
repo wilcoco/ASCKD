@@ -146,7 +146,14 @@ async function getDetector() {
     } catch (e) {}
   }
   if (!D) {
-    const mod = await import('https://fastly.jsdelivr.net/npm/barcode-detector@3/dist/es/pure.min.js');
+    // 자체 서버에서 폴리필 로드 (CDN 불필요)
+    const mod = await import('/vendor/ponyfill.js');
+    // wasm 바이너리도 자체 서버 경로에서 가져오도록 지정
+    mod.prepareZXingModule({
+      overrides: {
+        locateFile: (file, prefix) => (file.endsWith('.wasm') ? '/vendor/' + file : prefix + file),
+      },
+    });
     D = mod.BarcodeDetector;
   }
   detector = new D({ formats: SCAN_FORMATS });

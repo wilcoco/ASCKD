@@ -6,6 +6,9 @@ const { query, init, usePg } = require('./db');
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+// 바코드 디코더(폴리필 + wasm)를 CDN 대신 자체 서버에서 서빙 (인앱 브라우저/CDN 차단 대응)
+app.use('/vendor', express.static(path.join(__dirname, 'node_modules/barcode-detector/dist/es'), { maxAge: '7d' }));
+app.use('/vendor', express.static(path.join(__dirname, 'node_modules/zxing-wasm/dist/reader'), { maxAge: '7d' }));
 
 const now = () => new Date().toISOString();
 const normalize = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
