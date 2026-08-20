@@ -153,23 +153,80 @@ async function getDetector() {
   return detector;
 }
 
+// 제약 조건을 단계적으로 낮춰가며 카메라 열기
+async function getCameraStream() {
+  const attempts = [
+    // 고해상도 + 후면 카메라 (인식률 최상)
+    { audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
+    // 후면 카메라만 지정
+    { audio: false, video: { facingMode: 'environment' } },
+    // 아무 카메라나
+    { audio: false, video: true },
+  ];
+  let lastErr = null;
+  for (const c of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(c);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('카메라를 열 수 없습니다.');
+}
+
+// 실제 영상 프레임이 나올 때까지 대기 (검은 화면 감지)
+function waitForFrames(video, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    (function check() {
+      if (video.videoWidth > 0 && video.readyState >= 2) return resolve(true);
+      if (Date.now() - t0 > timeoutMs) return resolve(false);
+      setTimeout(check, 100);
+    })();
+  });
+}
+
+function releaseStream() {
+  if (mediaStream) {
+    mediaStream.getTracks().forEach((t) => t.stop());
+    mediaStream = null;
+    videoTrack = null;
+  }
+}
+
 async function startScanner() {
   if (scannerRunning) return;
-  await getDetector();
   const video = $('cam');
-  // 고해상도 요청: 작은 DataMatrix/QR 인식률을 크게 높임
-  mediaStream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: {
-      facingMode: { ideal: 'environment' },
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-    },
-  });
+  // 디코더는 병렬로 로드 (카메라 시작을 지연시키지 않음 — 사용자 제스처 컨텍스트 유지)
+  const detectorPromise = getDetector();
+
+  mediaStream = await getCameraStream();
   video.srcObject = mediaStream;
-  await video.play();
+  video.muted = true;
+  try {
+    await video.play();
+  } catch (e) {
+    // 자동재생이 거부되면 화면 탭으로 재생
+    video.addEventListener('click', () => video.play().catch(() => {}), { once: true });
+  }
+
+  // 프레임이 안 나오면(엉뚱한 렌즈가 잡힌 경우 등) 기본 설정으로 1회 재시도
+  let ok = await waitForFrames(video);
+  if (!ok) {
+    releaseStream();
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment' } });
+    video.srcObject = mediaStream;
+    try { await video.play(); } catch (e) {}
+    ok = await waitForFrames(video);
+  }
+  if (!ok) {
+    releaseStream();
+    throw new Error('카메라 영상이 나오지 않습니다. 다른 앱이 카메라를 사용 중인지 확인하거나, 브라우저(크롬 권장)를 완전히 종료 후 다시 시도해 주세요. 수동 입력은 계속 사용 가능합니다.');
+  }
+
   videoTrack = mediaStream.getVideoTracks()[0];
   await setupCameraControls();
+  await detectorPromise;
   scannerRunning = true;
   frameCount = 0;
   scanLoop();
@@ -244,12 +301,21 @@ async function stopScanner() {
   clearTimeout(scanTimer);
   const video = $('cam');
   if (video) { video.pause(); video.srcObject = null; }
-  if (mediaStream) {
-    mediaStream.getTracks().forEach((t) => t.stop());
-    mediaStream = null;
-    videoTrack = null;
-  }
+  releaseStream();
 }
+
+// 앱 전환 등으로 카메라가 끊겼다가 돌아오면 자동 재시작
+document.addEventListener('visibilitychange', async () => {
+  const onScanScreen = !$('screen-scan').classList.contains('hidden');
+  if (!onScanScreen) return;
+  if (document.visibilityState === 'visible') {
+    const video = $('cam');
+    if (!scannerRunning || !video.srcObject || video.videoWidth === 0) {
+      await stopScanner();
+      try { await startScanner(); } catch (e) {}
+    }
+  }
+});
 
 function onScanSuccess(decodedText) {
   const nowMs = Date.now();
@@ -342,7 +408,15 @@ $('btn-start-box').onclick = async () => {
   try {
     await startScanner();
   } catch (e) {
-    alert('카메라를 시작할 수 없습니다. 카메라 권한을 허용해 주세요.\n' + e);
+    let msg = e && e.message ? e.message : String(e);
+    if (e && e.name === 'NotAllowedError') {
+      msg = '카메라 권한이 거부되었습니다.\n브라우저 주소창의 자물쇠(🔒) 아이콘 → 권한 → 카메라 허용 후 새로고침해 주세요.';
+    } else if (e && e.name === 'NotFoundError') {
+      msg = '사용 가능한 카메라를 찾을 수 없습니다.';
+    } else if (e && e.name === 'NotReadableError') {
+      msg = '다른 앱이 카메라를 사용 중입니다. 카메라를 쓰는 앱을 종료한 뒤 다시 시도해 주세요.';
+    }
+    alert('카메라를 시작할 수 없습니다.\n\n' + msg + '\n\n(수동 입력은 계속 사용할 수 있습니다)');
   }
 };
 
