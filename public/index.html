@@ -6,7 +6,6 @@
   <meta name="theme-color" content="#111827" />
   <title>이종검사 시스템</title>
   <link rel="stylesheet" href="style.css" />
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
   <!-- 로그인 화면 -->
@@ -66,7 +65,12 @@
     </div>
 
     <div id="reader-wrap">
-      <div id="reader"></div>
+      <video id="cam" playsinline muted autoplay></video>
+      <div class="guide-box"></div>
+      <div class="cam-controls">
+        <button id="btn-torch" class="btn small hidden">🔦</button>
+        <input id="zoom-slider" type="range" class="hidden" />
+      </div>
       <div id="flash" class="flash hidden">
         <div id="flash-icon"></div>
         <div id="flash-text"></div>

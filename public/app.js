@@ -3,7 +3,6 @@ let worker = localStorage.getItem('worker') || '';
 let username = localStorage.getItem('username') || '';
 let session = null;          // { id, partNo, targetQty }
 let scanMode = 'box';        // 'box' | 'product'
-let scanner = null;          // Html5Qrcode 인스턴스
 let scannerRunning = false;
 let lastCode = '';
 let lastCodeAt = 0;
@@ -126,30 +125,129 @@ function enterHome() {
 }
 
 // ===== 스캐너 =====
-const SCAN_FORMATS = [
-  Html5QrcodeSupportedFormats.QR_CODE,
-  Html5QrcodeSupportedFormats.DATA_MATRIX,
-  Html5QrcodeSupportedFormats.CODE_128,
-  Html5QrcodeSupportedFormats.CODE_39,
-  Html5QrcodeSupportedFormats.EAN_13,
-];
+// 네이티브 BarcodeDetector(안드로이드 크롬, ML Kit 가속)를 우선 사용하고,
+// 미지원 브라우저(iOS 사파리 등)는 zxing-wasm 폴리필로 자동 대체
+const SCAN_FORMATS = ['qr_code', 'data_matrix', 'code_128', 'code_39', 'ean_13'];
+let detector = null;
+let mediaStream = null;
+let videoTrack = null;
+let scanTimer = null;
+let frameCount = 0;
+const cropCanvas = document.createElement('canvas');
+const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+
+async function getDetector() {
+  if (detector) return detector;
+  let D = null;
+  if (window.BarcodeDetector) {
+    try {
+      const supported = await window.BarcodeDetector.getSupportedFormats();
+      if (SCAN_FORMATS.every((f) => supported.includes(f))) D = window.BarcodeDetector;
+    } catch (e) {}
+  }
+  if (!D) {
+    const mod = await import('https://fastly.jsdelivr.net/npm/barcode-detector@3/dist/es/pure.min.js');
+    D = mod.BarcodeDetector;
+  }
+  detector = new D({ formats: SCAN_FORMATS });
+  return detector;
+}
 
 async function startScanner() {
   if (scannerRunning) return;
-  if (!scanner) scanner = new Html5Qrcode('reader', { formatsToSupport: SCAN_FORMATS, verbose: false });
-  await scanner.start(
-    { facingMode: 'environment' },
-    { fps: 10, qrbox: (w, h) => ({ width: Math.floor(w * 0.8), height: Math.floor(Math.min(h, w) * 0.5) }) },
-    onScanSuccess,
-    () => {} // 프레임별 인식 실패는 무시
-  );
+  await getDetector();
+  const video = $('cam');
+  // 고해상도 요청: 작은 DataMatrix/QR 인식률을 크게 높임
+  mediaStream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+    },
+  });
+  video.srcObject = mediaStream;
+  await video.play();
+  videoTrack = mediaStream.getVideoTracks()[0];
+  await setupCameraControls();
   scannerRunning = true;
+  frameCount = 0;
+  scanLoop();
+}
+
+async function setupCameraControls() {
+  const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+  // 연속 자동초점
+  try {
+    if (caps.focusMode && caps.focusMode.includes('continuous')) {
+      await videoTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    }
+  } catch (e) {}
+  // 줌 슬라이더 (지원 기기만)
+  const slider = $('zoom-slider');
+  if (caps.zoom) {
+    slider.min = caps.zoom.min;
+    slider.max = Math.min(caps.zoom.max, caps.zoom.min + (caps.zoom.max - caps.zoom.min));
+    slider.step = caps.zoom.step || 0.1;
+    slider.value = videoTrack.getSettings().zoom || caps.zoom.min;
+    slider.classList.remove('hidden');
+    slider.oninput = () => {
+      videoTrack.applyConstraints({ advanced: [{ zoom: Number(slider.value) }] }).catch(() => {});
+    };
+  } else {
+    slider.classList.add('hidden');
+  }
+  // 손전등 (지원 기기만)
+  const torchBtn = $('btn-torch');
+  if (caps.torch) {
+    torchBtn.classList.remove('hidden');
+    torchBtn.classList.remove('on');
+    let torchOn = false;
+    torchBtn.onclick = () => {
+      torchOn = !torchOn;
+      torchBtn.classList.toggle('on', torchOn);
+      videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] }).catch(() => {});
+    };
+  } else {
+    torchBtn.classList.add('hidden');
+  }
+}
+
+// 화면 가이드 박스(중앙 80%×60%) 영역을 원본 해상도 그대로 잘라 디코딩 → 디지털 줌 효과
+function grabGuideCrop(video) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return null;
+  const cw = Math.floor(vw * 0.8), ch = Math.floor(vh * 0.6);
+  cropCanvas.width = cw;
+  cropCanvas.height = ch;
+  cropCtx.drawImage(video, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, cw, ch);
+  return cropCanvas;
+}
+
+async function scanLoop() {
+  if (!scannerRunning) return;
+  const video = $('cam');
+  try {
+    frameCount++;
+    // 3프레임 중 2번은 가이드 박스 크롭, 1번은 전체 프레임으로 디코딩
+    let source = frameCount % 3 === 0 ? video : grabGuideCrop(video);
+    if (source) {
+      const codes = await detector.detect(source);
+      if (codes.length > 0 && codes[0].rawValue) onScanSuccess(codes[0].rawValue);
+    }
+  } catch (e) {}
+  scanTimer = setTimeout(scanLoop, 120);
 }
 
 async function stopScanner() {
-  if (scanner && scannerRunning) {
-    try { await scanner.stop(); } catch (e) {}
-    scannerRunning = false;
+  scannerRunning = false;
+  clearTimeout(scanTimer);
+  const video = $('cam');
+  if (video) { video.pause(); video.srcObject = null; }
+  if (mediaStream) {
+    mediaStream.getTracks().forEach((t) => t.stop());
+    mediaStream = null;
+    videoTrack = null;
   }
 }
 
