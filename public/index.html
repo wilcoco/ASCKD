@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#111827" />
+  <title>이종검사 시스템</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+  <!-- 로그인 화면 -->
+  <section id="screen-login" class="screen">
+    <div class="login-box">
+      <h1>🔍 이종검사</h1>
+      <p class="sub">제품 · 납입상자 오적입 방지 시스템</p>
+
+      <div class="tab-bar">
+        <button id="tab-login" class="tab active">로그인</button>
+        <button id="tab-register" class="tab">회원가입</button>
+      </div>
+
+      <div id="form-login" class="auth-form">
+        <input id="login-username" type="text" placeholder="아이디" autocomplete="username" autocapitalize="none" />
+        <input id="login-password" type="password" placeholder="비밀번호" autocomplete="current-password" />
+        <button id="btn-login" class="btn primary big">로그인</button>
+      </div>
+
+      <div id="form-register" class="auth-form hidden">
+        <input id="reg-name" type="text" placeholder="이름" autocomplete="name" />
+        <input id="reg-username" type="text" placeholder="아이디" autocomplete="username" autocapitalize="none" />
+        <input id="reg-password" type="password" placeholder="비밀번호 (4자 이상)" autocomplete="new-password" />
+        <button id="btn-register" class="btn secondary big">회원가입</button>
+      </div>
+
+      <p id="auth-msg" class="auth-msg"></p>
+    </div>
+  </section>
+
+  <!-- 메인 화면 -->
+  <section id="screen-home" class="screen hidden">
+    <header class="topbar">
+      <span id="home-worker" class="worker-chip">👷</span>
+      <button id="btn-logout" class="btn small ghost">로그아웃</button>
+    </header>
+    <div class="home-body">
+      <button id="btn-start-box" class="btn primary big">📦 상자 QR 스캔 시작</button>
+      <button id="btn-history" class="btn secondary big">📋 이종검사 내역</button>
+    </div>
+  </section>
+
+  <!-- 스캔 화면 (상자 → 제품) -->
+  <section id="screen-scan" class="screen hidden">
+    <header class="topbar">
+      <button id="btn-scan-back" class="btn small ghost">← 뒤로</button>
+      <span id="scan-title" class="scan-title">상자 QR을 스캔하세요</span>
+    </header>
+
+    <div id="session-info" class="session-info hidden">
+      <div class="info-row"><span>품번</span><b id="info-part"></b></div>
+      <div class="counts">
+        <div class="count ok">OK <b id="count-ok">0</b></div>
+        <div class="count ng">NG <b id="count-ng">0</b></div>
+        <div class="count qty">목표 <b id="count-target">-</b></div>
+      </div>
+    </div>
+
+    <div id="reader-wrap">
+      <div id="reader"></div>
+      <div id="flash" class="flash hidden">
+        <div id="flash-icon"></div>
+        <div id="flash-text"></div>
+        <div id="flash-detail"></div>
+      </div>
+    </div>
+
+    <div class="manual-input">
+      <input id="manual-code" type="text" placeholder="수동 입력 / 스캐너건 입력" />
+      <button id="btn-manual" class="btn small">확인</button>
+    </div>
+
+    <div class="scan-footer">
+      <ul id="scan-log" class="scan-log"></ul>
+      <button id="btn-end-session" class="btn danger big hidden">✅ 적입 완료 (상자 마감)</button>
+    </div>
+  </section>
+
+  <!-- 이종검사 내역 화면 -->
+  <section id="screen-history" class="screen hidden">
+    <header class="topbar">
+      <button id="btn-history-back" class="btn small ghost">← 뒤로</button>
+      <span class="scan-title">이종검사 내역</span>
+    </header>
+    <div class="history-filter">
+      <input id="filter-date" type="date" />
+      <input id="filter-worker" type="text" placeholder="작업자" />
+      <button id="btn-filter" class="btn small">조회</button>
+    </div>
+    <div id="history-list" class="history-list"></div>
+  </section>
+
+  <!-- 세션 상세 화면 -->
+  <section id="screen-detail" class="screen hidden">
+    <header class="topbar">
+      <button id="btn-detail-back" class="btn small ghost">← 뒤로</button>
+      <span class="scan-title">상자 상세 내역</span>
+    </header>
+    <div id="detail-summary" class="detail-summary"></div>
+    <div id="detail-scans" class="history-list"></div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

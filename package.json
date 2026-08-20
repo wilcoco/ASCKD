@@ -1,0 +1,17 @@
+{
+  "name": "asckd-mismatch-inspection",
+  "version": "1.0.0",
+  "description": "제품-납입상자 이종검사 시스템 (barcode/QR mismatch inspection)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}
